@@ -1,0 +1,63 @@
+# Reduced public example derived from a private Podman deployment.
+# It intentionally uses static routing and does not mount the container-engine socket.
+name: homelab-minecraft-example
+
+services:
+  router:
+    image: itzg/mc-router:1.42.0@sha256:14a9eedcce5955ade0ef0e4c954b45ecdbff55aac1564e484d59d0836b05c5d1
+    restart: unless-stopped
+    environment:
+      MAPPING: play.example.invalid=mc:25565
+    ports:
+      - "127.0.0.1:25565:25565"
+    networks:
+      - minecraft
+
+  mc:
+    image: itzg/minecraft-server:java21@sha256:da92e9d215c159cd53a0e960d9a9cb67b5455ba1a7fca5b35d92be1e0bde857a
+    restart: unless-stopped
+    mem_limit: 5g
+    environment:
+      EULA: "TRUE"
+      TYPE: PAPER
+      VERSION: "1.21.5"
+      MEMORY: 4G
+      ENABLE_RCON: "TRUE"
+      RCON_PASSWORD_FILE: /run/secrets/rcon_password
+    secrets:
+      - rcon_password
+    volumes:
+      - minecraft-data:/data
+    networks:
+      - minecraft
+
+  backups:
+    image: itzg/mc-backup:2026.3.2@sha256:5d2c1fb80f4a225927e6ff05305d915ee2866bc320dd999f23373360cf88bd40
+    restart: unless-stopped
+    depends_on:
+      mc:
+        condition: service_healthy
+    environment:
+      RCON_HOST: mc
+      RCON_PASSWORD_FILE: /run/secrets/rcon_password
+      BACKUP_INTERVAL: 2h
+      PRUNE_BACKUPS_COUNT: 12
+      PAUSE_IF_NO_PLAYERS: "true"
+    secrets:
+      - rcon_password
+    volumes:
+      - minecraft-data:/data:ro
+      - minecraft-backups:/backups
+    networks:
+      - minecraft
+
+secrets:
+  rcon_password:
+    file: ./rcon-password.txt
+
+networks:
+  minecraft:
+
+volumes:
+  minecraft-data:
+  minecraft-backups:

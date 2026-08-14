@@ -1,0 +1,91 @@
+# This is the OneDev build spec I use, with private names and schedule replaced.
+# Replace every example value before importing this as .onedev-buildspec.yml.
+version: 46
+jobs:
+  - name: build
+    steps:
+      - type: CheckoutStep
+        name: checkout
+        cloneCredential:
+          type: DefaultCredential
+        withLfs: false
+        withSubmodules: false
+        condition: SUCCESSFUL
+        optional: false
+      - type: GenerateChecksumStep
+        name: checksum Gradle version
+        files: gradle/wrapper/gradle-wrapper.properties
+        targetFile: gradle-version-checksum
+        condition: SUCCESSFUL
+        optional: false
+      - type: SetupCacheStep
+        name: cache Gradle
+        key: gradle-@file:gradle-version-checksum@
+        loadKeys:
+          - gradle-@file:gradle-version-checksum@
+        paths:
+          - .gradle-home
+          - .gradle/configuration-cache
+          - .gradle/build-cache
+        uploadStrategy: UPLOAD_IF_CHANGED
+        changeDetectionExcludes: "**/*.lck **/gc.properties **/gradle-*/LICENSE"
+        uploadProjectPath: example-project
+        condition: SUCCESSFUL
+        optional: false
+      - type: CommandStep
+        name: build
+        runInContainer: true
+        image: gradle:jdk25@sha256:7d4e63b32991e679b183645680ff81762b6f1ef137850d8c2750b362eb994d08
+        interpreter:
+          type: DefaultInterpreter
+          commands: |
+            export GRADLE_USER_HOME="$PWD/.gradle-home"
+            chmod +x gradlew
+            ./gradlew build -x test --build-cache --configuration-cache --no-daemon
+            sha256sum plugin/build/libs/plugin-*.jar backend/build/libs/backend-*.jar > artifacts.sha256
+        condition: SUCCESSFUL
+        optional: false
+      - type: PublishArtifactStep
+        name: plugin JAR
+        sourcePath: ./plugin/build/libs/
+        artifacts: plugin-*.jar
+        condition: SUCCESSFUL
+        optional: false
+      - type: PublishArtifactStep
+        name: backend JAR
+        sourcePath: ./backend/build/libs/
+        artifacts: backend-*.jar
+        condition: SUCCESSFUL
+        optional: false
+      - type: PublishArtifactStep
+        name: artifact checksums
+        sourcePath: ./
+        artifacts: artifacts.sha256
+        condition: SUCCESSFUL
+        optional: false
+    triggers:
+      - type: BranchUpdateTrigger
+        branches: main
+        paths: -docs/**
+        userMatch: anyone
+        projects: example-project
+    retryCondition: never
+    timeout: 1800
+  - name: pull GitHub mirror
+    steps:
+      - type: PullRepository
+        name: pull GitHub mirror
+        remoteUrl: https://github.com/example/example-project.git
+        targetProject: example-project
+        refs: refs/heads/* refs/tags/*
+        withLfs: false
+        force: false
+        condition: SUCCESSFUL
+        optional: false
+    triggers:
+      - type: ScheduleTrigger
+        cronExpression: 0 0 3 * * ?
+        branches: main
+        projects: example-project
+    retryCondition: never
+    timeout: 1800
